@@ -27,7 +27,7 @@ root = args.input_file
 
 transform = transforms.Compose([transforms.Resize((224, 224)),
                                 transforms.ToTensor()])
-
+# args.train= True
 if args.train:
     trainset = Dataset(root=root, load_set='train', transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=16)
@@ -74,7 +74,7 @@ criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step, gamma=args.lr_step_gamma)
 scheduler.last_epoch = start
-lambda_1 = 0.01
+lambda_1 = 0.001
 lambda_2 = 1
 
 """# Train"""
@@ -92,7 +92,7 @@ if args.train:
     
             # wrap them in Variable
             inputs = Variable(inputs)
-            # depths = Variable(depths)
+            depths = Variable(depths)
             labels2d = Variable(labels2d)
             labels3d = Variable(labels3d)
             
@@ -106,7 +106,7 @@ if args.train:
             optimizer.zero_grad()
     
             # forward + backward + optimize
-            if args.model_def.lower() == "hopenet":
+            if args.model_def.lower() == "hopenet2":
                 outputs2d_init, outputs2d, outputs3d = model(inputs, depths)
                 loss2d_init = criterion(outputs2d_init, labels2d)
                 loss2d = criterion(outputs2d, labels2d)
@@ -114,7 +114,7 @@ if args.train:
                 loss = (lambda_1)*loss2d_init + (lambda_1)*loss2d + (lambda_2)*loss3d
             else:
                 outputs3d = model(inputs, depths)
-                loss = criterion(outputs3d[0], labels3d)
+                loss = criterion(outputs3d, labels3d)
             loss.backward()
             optimizer.step()
             
@@ -134,7 +134,7 @@ if args.train:
                 
                 # wrap them in Variable
                 inputs = Variable(inputs)
-                # depths = Variable(depths)
+                depths = Variable(depths)
                 labels2d = Variable(labels2d)
                 labels3d = Variable(labels3d)
         
@@ -143,7 +143,7 @@ if args.train:
                     depths = depths.float().cuda(device=args.gpu_number[0])
                     labels2d = labels2d.float().cuda(device=args.gpu_number[0])
                     labels3d = labels3d.float().cuda(device=args.gpu_number[0])
-                if args.model_def.lower() == "hopenet":
+                if args.model_def.lower() == "hopenet2":
                     outputs2d_init, outputs2d, outputs3d = model(inputs, depths)    
                     loss2d_init = criterion(outputs2d_init, labels2d)
                     loss2d = criterion(outputs2d, labels2d)
@@ -151,7 +151,7 @@ if args.train:
                     loss = (lambda_1)*loss2d_init + (lambda_1)*loss2d + (lambda_2)*loss3d
                 else:
                     outputs3d = model(inputs, depths)
-                    loss = criterion(outputs3d[0], labels3d)
+                    loss = criterion(outputs3d, labels3d)
                 val_loss += loss.data
             print('val error: %.5f' % (val_loss / (v+1)))
         losses.append((train_loss / (i+1)).cpu().numpy())
@@ -222,10 +222,10 @@ if args.test:
             labels3d = labels3d.float().cuda(device=args.gpu_number[0])
 
         # outputs = model(inputs)
-        if args.model_def.lower() == "hopenet":
+        if args.model_def.lower() == "hopenet2":
             outputs2d_init, outputs2d, outputs3d = model(inputs, depths)
         else:
-            outputs3d, _ = model(inputs, depths)
+            outputs3d = model(inputs, depths)
         
         # outputs3d = outputs[0]
         loss = criterion(outputs3d, labels3d)

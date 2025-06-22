@@ -31,9 +31,11 @@ class Dataset(data.Dataset):
         Returns:
             tuple: (image, points2D, points3D).
         """
-        
-        image = Image.open(self.images[index])
-        depth = Image.open(self.depths[index])
+        rgb_path = self.images[index].replace('/home/razvan/HUP-3D-model/data/', '/home/users/caramr2/hup3d/hup3d-data/')
+        image = Image.open(rgb_path)
+        depth_path = self.depths[index].replace('/home/razvan/HUP-3D-model/data/', '/home/users/caramr2/hup3d/hup3d-data/')
+        depth_path = depth_path.replace('depth_', 'img_depth_')
+        depth = Image.open(depth_path)
         point2d = self.points2d[index]
         point3d = self.points3d[index]
         # print(self.images[index])

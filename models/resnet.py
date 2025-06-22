@@ -247,35 +247,77 @@ def resnet50c(pretrained=False, num_classes=87, **kwargs):
     """Constructs a ResNet-50c model for RGB and Depth modalities.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
+        num_classes (int): Number of output classes
     """
-    # RGB encoder
+    
+    # RGB encoder - standard ResNet50
     rgb_encoder = ResNet(Bottleneck, [3, 4, 6, 3], num_classes=1000, **kwargs)
     if pretrained:
         rgb_encoder.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
-    rgb_num_ftrs = rgb_encoder.fc.in_features
-    rgb_encoder.fc = nn.Identity()  # Remove the final fully connected layer
-
-    # Depth encoder
+    
+    # Depth encoder - ResNet50 modified for single channel input
     depth_encoder = ResNet(Bottleneck, [3, 4, 6, 3], num_classes=1000, **kwargs)
     if pretrained:
+        # Load pretrained weights first
         depth_encoder.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
-    depth_num_ftrs = depth_encoder.fc.in_features
-    depth_encoder.fc = nn.Identity()  # Remove the final fully connected layer
-
+        
+        # Modify the first conv layer for single channel input
+        # Get the original conv1 weights (3, 64, 7, 7)
+        original_conv1_weight = depth_encoder.conv1.weight.data
+        # Take the mean across the 3 input channels to create (1, 64, 7, 7)
+        new_conv1_weight = original_conv1_weight.mean(dim=1, keepdim=True)
+        # Create new conv layer for single channel input
+        depth_encoder.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        # Assign the averaged weights
+        depth_encoder.conv1.weight.data = new_conv1_weight
+    else:
+        # If not pretrained, just modify the conv1 layer
+        depth_encoder.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    
+    # Get the feature dimension (before the final FC layer)
+    feature_dim = 512 * Bottleneck.expansion  # 512 * 4 = 2048 for ResNet50
+    
     # Combined model
     class ResNet50c(nn.Module):
         def __init__(self, rgb_encoder, depth_encoder, num_classes):
             super(ResNet50c, self).__init__()
             self.rgb_encoder = rgb_encoder
             self.depth_encoder = depth_encoder
-            self.fc = nn.Linear(rgb_num_ftrs + depth_num_ftrs, num_classes)
+            # Combined classifier: 2048 (RGB) + 2048 (Depth) = 4096 input features
+            self.fc = nn.Linear(feature_dim * 2, num_classes)
+            
+            # Remove the original FC layers since we'll extract features manually
+            self.rgb_encoder.fc = nn.Identity()
+            self.depth_encoder.fc = nn.Identity()
+
+        def extract_features(self, x, encoder):
+            """Extract features from encoder without going through the final FC layer"""
+            x = encoder.conv1(x)
+            x = encoder.bn1(x)
+            x = encoder.relu(x)
+            x = encoder.maxpool(x)
+
+            x = encoder.layer1(x)
+            x = encoder.layer2(x)
+            x = encoder.layer3(x)
+            x = encoder.layer4(x)
+
+            x = encoder.avgpool(x)
+            x = torch.flatten(x, 1)
+            return x
 
         def forward(self, rgb, depth):
-            rgb_features = self.rgb_encoder(rgb)
-            depth_features = self.depth_encoder(depth)
+            # Extract features from both modalities
+            rgb_features = self.extract_features(rgb, self.rgb_encoder)
+            depth_features = self.extract_features(depth, self.depth_encoder)
+            
+            # Concatenate features
             combined_features = torch.cat((rgb_features, depth_features), dim=1)
+            
+            # Final classification
             x = self.fc(combined_features)
-            return x.view(-1, 29, 3)
+            points3D = x.view(-1, 29, 3)
+            return points3D
 
     return ResNet50c(rgb_encoder, depth_encoder, num_classes)
 
@@ -304,3 +346,167 @@ def resnet152(pretrained=False, num_classes=1000, **kwargs):
     model.fc = nn.Linear(num_ftrs, num_classes)
     return model
 
+
+def resnet18c(pretrained=False, num_classes=58, **kwargs):
+    """Constructs a ResNet-18c model for RGB and Depth modalities.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        num_classes (int): Number of output units (should be 58 for 29 points * 2 coordinates)
+    """
+    
+    # RGB encoder - standard ResNet18
+    rgb_encoder = ResNet(BasicBlock, [2, 2, 2, 2], num_classes=1000, **kwargs)
+    if pretrained:
+        rgb_encoder.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+    
+    # Depth encoder - ResNet18 modified for single channel input
+    depth_encoder = ResNet(BasicBlock, [2, 2, 2, 2], num_classes=1000, **kwargs)
+    if pretrained:
+        # Load pretrained weights first
+        depth_encoder.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+        
+        # Modify the first conv layer for single channel input
+        # Get the original conv1 weights (3, 64, 7, 7)
+        original_conv1_weight = depth_encoder.conv1.weight.data
+        # Take the mean across the 3 input channels to create (1, 64, 7, 7)
+        new_conv1_weight = original_conv1_weight.mean(dim=1, keepdim=True)
+        # Create new conv layer for single channel input
+        depth_encoder.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        # Assign the averaged weights
+        depth_encoder.conv1.weight.data = new_conv1_weight
+    else:
+        # If not pretrained, just modify the conv1 layer
+        depth_encoder.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    
+    # Get the feature dimension (before the final FC layer)
+    feature_dim = 512 * BasicBlock.expansion  # 512 * 1 = 512 for ResNet18
+    
+    # Combined model
+    class ResNet18c(nn.Module):
+        def __init__(self, rgb_encoder, depth_encoder, num_classes):
+            super(ResNet18c, self).__init__()
+            self.rgb_encoder = rgb_encoder
+            self.depth_encoder = depth_encoder
+            # Combined classifier: 512 (RGB) + 512 (Depth) = 1024 input features
+            self.fc = nn.Linear(feature_dim * 2, num_classes)
+            
+            # Remove the original FC layers since we'll extract features manually
+            self.rgb_encoder.fc = nn.Identity()
+            self.depth_encoder.fc = nn.Identity()
+
+        def extract_features(self, x, encoder):
+            """Extract features from encoder without going through the final FC layer"""
+            x = encoder.conv1(x)
+            x = encoder.bn1(x)
+            x = encoder.relu(x)
+            x = encoder.maxpool(x)
+
+            x = encoder.layer1(x)
+            x = encoder.layer2(x)
+            x = encoder.layer3(x)
+            x = encoder.layer4(x)
+
+            x = encoder.avgpool(x)
+            x = torch.flatten(x, 1)
+            return x
+
+        def forward(self, rgb, depth):
+            # Extract features from both modalities
+            rgb_features = self.extract_features(rgb, self.rgb_encoder)
+            depth_features = self.extract_features(depth, self.depth_encoder)
+            
+            # Concatenate features
+            combined_features = torch.cat((rgb_features, depth_features), dim=1)
+            
+            # Final classification
+            x = self.fc(combined_features)
+            
+            # Return points2D_init and features like the base ResNet
+            points2D_init = x.view(-1, 29, 2)
+            features = combined_features
+            
+            return points2D_init, features
+
+    return ResNet18c(rgb_encoder, depth_encoder, num_classes)
+
+
+def resnet18c2(pretrained=False, num_classes=87, **kwargs):
+    """Constructs a ResNet-18c model for RGB and Depth modalities.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        num_classes (int): Number of output units (should be 58 for 29 points * 2 coordinates)
+    """
+    
+    # RGB encoder - standard ResNet18
+    rgb_encoder = ResNet(BasicBlock, [2, 2, 2, 2], num_classes=1000, **kwargs)
+    if pretrained:
+        rgb_encoder.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+    
+    # Depth encoder - ResNet18 modified for single channel input
+    depth_encoder = ResNet(BasicBlock, [2, 2, 2, 2], num_classes=1000, **kwargs)
+    if pretrained:
+        # Load pretrained weights first
+        depth_encoder.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+        
+        # Modify the first conv layer for single channel input
+        # Get the original conv1 weights (3, 64, 7, 7)
+        original_conv1_weight = depth_encoder.conv1.weight.data
+        # Take the mean across the 3 input channels to create (1, 64, 7, 7)
+        new_conv1_weight = original_conv1_weight.mean(dim=1, keepdim=True)
+        # Create new conv layer for single channel input
+        depth_encoder.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        # Assign the averaged weights
+        depth_encoder.conv1.weight.data = new_conv1_weight
+    else:
+        # If not pretrained, just modify the conv1 layer
+        depth_encoder.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    
+    # Get the feature dimension (before the final FC layer)
+    feature_dim = 512 * BasicBlock.expansion  # 512 * 1 = 512 for ResNet18
+    
+    # Combined model
+    class ResNet18c(nn.Module):
+        def __init__(self, rgb_encoder, depth_encoder, num_classes):
+            super(ResNet18c, self).__init__()
+            self.rgb_encoder = rgb_encoder
+            self.depth_encoder = depth_encoder
+            # Combined classifier: 512 (RGB) + 512 (Depth) = 1024 input features
+            self.fc = nn.Linear(feature_dim * 2, num_classes)
+            
+            # Remove the original FC layers since we'll extract features manually
+            self.rgb_encoder.fc = nn.Identity()
+            self.depth_encoder.fc = nn.Identity()
+
+        def extract_features(self, x, encoder):
+            """Extract features from encoder without going through the final FC layer"""
+            x = encoder.conv1(x)
+            x = encoder.bn1(x)
+            x = encoder.relu(x)
+            x = encoder.maxpool(x)
+
+            x = encoder.layer1(x)
+            x = encoder.layer2(x)
+            x = encoder.layer3(x)
+            x = encoder.layer4(x)
+
+            x = encoder.avgpool(x)
+            x = torch.flatten(x, 1)
+            return x
+
+        def forward(self, rgb, depth):
+            # Extract features from both modalities
+            rgb_features = self.extract_features(rgb, self.rgb_encoder)
+            depth_features = self.extract_features(depth, self.depth_encoder)
+            
+            # Concatenate features
+            combined_features = torch.cat((rgb_features, depth_features), dim=1)
+            
+            # Final classification
+            x = self.fc(combined_features)
+            
+            # Return points2D_init and features like the base ResNet
+            points2D_init = x.view(-1, 29, 3)
+            
+            return points2D_init
+
+    return ResNet18c(rgb_encoder, depth_encoder, num_classes)

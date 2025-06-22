@@ -6,12 +6,12 @@ def parse_args_function():
     # Required arguments: input and output files.
     parser.add_argument(
         "--input_file",
-        default='./datasets/obman/',
+        default='/home/users/caramr2/hup3d/hup3d-data/',
         help="Input image, directory"
     )
     parser.add_argument(
         "--output_file",
-        default='./checkpoints/model-',
+        default='./checkpoints/model-rs',
         help="Prefix of output pkl filename"
     )
     # Optional arguments.
@@ -33,12 +33,12 @@ def parse_args_function():
     parser.add_argument(
         "--batch_size",
         type=int,
-        default = 512,
+        default = 64,
         help="Mini-batch size"
     )
     parser.add_argument(
         "--model_def",
-        default='HopeNet',
+        default='resnet18c',
         help="Name of the model 'HopeNet', 'GraphUNet' or 'GraphNet'"
     )
     parser.add_argument(
@@ -48,7 +48,7 @@ def parse_args_function():
     )
     parser.add_argument(
         "--gpu",
-        action='store_true',
+        default=True,
         help="Switch for gpu computation."
     )
     parser.add_argument(
